@@ -1,0 +1,38 @@
+[project]
+name = "email-assistant"
+version = "0.1.0"
+description = "Email assistant with triage + long-term semantic, episodic and procedural memory (LangGraph + LangMem)"
+authors = [
+    { name = "Denis Savenok", email = "denissavenok@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastembed>=0.8.1",
+    "langchain-anthropic>=1.7.5",
+    "langgraph>=1.2.12",
+    "langmem>=0.0.30",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.4",
+]
+
+[project.optional-dependencies]
+google = [
+    "google-api-python-client>=2.201.0",
+    "google-auth-oauthlib>=1.5.0",
+]
+postgres = [
+    "langgraph-checkpoint-postgres>=3.1.2",
+    "psycopg[binary,pool]>=3.3.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.28,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[project.scripts]
+email-assistant = "email_assistant.cli:main"
