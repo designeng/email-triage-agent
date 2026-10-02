@@ -1,0 +1,60 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c2024;
+  --muted: #667085;
+  --border: #e3e6ea;
+  --accent: #3b5bdb;
+  --accent-text: #ffffff;
+  --ok: #2b8a3e;
+  --warn: #b7791f;
+  --bad: #c92a2a;
+  --tint: #eef1fb;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1c1f25;
+    --text: #e6e8eb;
+    --muted: #9aa3af;
+    --border: #2d323a;
+    --accent: #748ffc;
+    --accent-text: #11141a;
+    --ok: #69db7c;
+    --warn: #ffd43b;
+    --bad: #ff8787;
+    --tint: #232838;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+h2, h3 { margin: 0 0 8px; }
+h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+pre { white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; }
+code, .mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.85em; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.stack > * + * { margin-top: 16px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; }
+
+button, select, input, textarea {
+  font: inherit; color: inherit; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
+}
+input, textarea { width: 100%; }
+textarea { resize: vertical; min-height: 120px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.danger { color: var(--bad); }
+
+.badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.badge.respond, .badge.done { color: var(--ok); }
+.badge.notify, .badge.pending_review { color: var(--warn); }
+.badge.ignore, .badge.processing { color: var(--muted); }
+.badge.error { color: var(--bad); }
+.error-text { color: var(--bad); }

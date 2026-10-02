@@ -2,7 +2,8 @@
 
   email-assistant demo                    scripted walkthrough of all memory types
   email-assistant run  [emails.jsonl]     interactive triage/review/feedback loop
-  email-assistant gmail [--watch 60]      process unread Gmail (TOOLS_BACKEND=google)
+  email-assistant gmail                   process unread Gmail once, interactively (TOOLS_BACKEND=google)
+  email-assistant serve [--port 8000]     web UI + Gmail push webhook (uv sync --extra server)
   email-assistant eval                    triage accuracy of the active prompts
   email-assistant prompts list|show|rollback|activate
   email-assistant facts [query]
@@ -17,7 +18,6 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 from email_assistant.assistant import Assistant
@@ -135,23 +135,38 @@ def cmd_run(assistant: Assistant, args) -> None:
         after_email(assistant, email, state)
 
 
-def cmd_gmail(assistant: Assistant, args) -> None:
+def cmd_gmail(assistant: Assistant, _args) -> None:
     from email_assistant.tools import get_backend
 
     backend = get_backend()
     if not hasattr(backend, "fetch_unread"):
         sys.exit("Set TOOLS_BACKEND=google to read Gmail")
-    while True:
-        for email in backend.fetch_unread():
-            hr(email["subject"])
-            state = assistant.process(email, interactive_review)
-            print_result(state)
-            backend.mark_read(email["id"])
-            if not args.watch:
-                after_email(assistant, email, state)
-        if not args.watch:
-            break
-        time.sleep(args.watch)
+    for email in backend.fetch_unread():
+        hr(email["subject"])
+        state = assistant.process(email, interactive_review)
+        print_result(state)
+        backend.mark_read(email["id"])
+        after_email(assistant, email, state)
+
+
+def cmd_serve(assistant: Assistant, args) -> None:
+    try:
+        import uvicorn
+
+        from email_assistant.inbox import Inbox
+        from email_assistant.integrations.gmail_push import GmailPush
+        from email_assistant.server import create_app
+    except ImportError:
+        sys.exit("Install the server extra: uv sync --extra server")
+    from email_assistant.tools import get_backend
+
+    inbox = Inbox(assistant)
+    backend = get_backend()
+    push = None
+    if hasattr(backend, "watch"):
+        push = GmailPush(backend, inbox, topic=os.getenv("GMAIL_PUBSUB_TOPIC"),
+                         token=os.getenv("PUBSUB_VERIFICATION_TOKEN"))
+    uvicorn.run(create_app(assistant, push=push, inbox=inbox), host=args.host, port=args.port)
 
 
 def cmd_eval(assistant: Assistant, _args) -> None:
@@ -196,8 +211,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("file", nargs="?")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("gmail")
-    p.add_argument("--watch", type=int, default=0, help="poll every N seconds (auto mode)")
     p.set_defaults(fn=cmd_gmail)
+    p = sub.add_parser("serve")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(fn=cmd_serve)
     sub.add_parser("eval").set_defaults(fn=cmd_eval)
     p = sub.add_parser("prompts")
     p.add_argument("action", choices=["list", "show", "rollback", "activate"])

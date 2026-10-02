@@ -97,10 +97,46 @@ Without `DATABASE_URL`, `InMemoryStore` + `InMemorySaver` are used, and memory l
 
 1. In Google Cloud, enable the Gmail API and Calendar API, then create an OAuth client of type **Desktop app** → `credentials.json`.
 2. `uv sync --extra google`, set `TOOLS_BACKEND=google` and `TIMEZONE=...`.
-3. `uv run email-assistant gmail` processes unread mail once; `--watch 60` polls every minute.
+3. `uv run email-assistant gmail` processes unread mail once; For continuous operation use `serve` (below).
 
 Every email goes through human-in-the-loop: `write_email` calls `interrupt()`, and you choose
-*accept / edit / feedback to agent / ignore*. For production, swap polling for Gmail push via Pub/Sub → webhook → `Assistant.process()`.
+*accept / edit / feedback to agent / ignore*. `email-assistant gmail` does this once, interactively in the terminal.
+
+### Web UI + Gmail push
+
+```bash
+uv sync --extra server
+(cd frontend && npm install && npm run build)   # once; or `npm run dev` for hot reload on :5173
+uv run email-assistant serve                    # http://127.0.0.1:8000
+```
+
+fish (no `(...)` subshells):
+
+```fish
+uv sync --extra server
+cd frontend; and npm install; and npm run build; cd ..
+uv run email-assistant serve
+```
+
+`serve` runs an API, the Vue UI from `frontend/` and a Gmail webhook in one process. Emails are processed in the
+background; a draft waits in the **Inbox** tab (status *needs review*) until you accept / edit / send feedback / reject it,
+so no terminal has to stay open on `input()`. The UI also lets you correct triage (episodic memory), send feedback to the
+prompt optimizer (procedural memory), browse/activate/roll back prompt versions and search facts. With
+`TOOLS_BACKEND=mock` you can add sample emails from the UI.
+
+Instead of polling, Gmail pushes changes through Pub/Sub (`integrations/gmail_push.py`):
+
+1. Create a Pub/Sub topic; give `gmail-api-push@system.gserviceaccount.com` the *Pub/Sub Publisher* role on it.
+2. Create a **push** subscription to `https://<public host>/webhooks/gmail?token=<PUBSUB_VERIFICATION_TOKEN>`
+   (expose the local port with a tunnel such as `cloudflared`/`ngrok` while developing).
+3. Set `GMAIL_PUBSUB_TOPIC`, `PUBSUB_VERIFICATION_TOKEN`, `TOOLS_BACKEND=google` and run `serve`.
+
+On start the server registers `users.watch` (renewed every 6 h; Gmail expires it after ~7 days) and ingests anything
+unread. Each notification triggers a `history.list` from a cursor kept in the store; emails are deduplicated by Gmail id.
+Without `DATABASE_URL` the inbox, drafts and checkpoints live in memory and vanish on restart.
+
+The server has no login: it binds to `127.0.0.1` by default. Only the webhook is meant to be reachable from outside
+(guarded by the token); put the rest behind an authenticating proxy before exposing it.
 
 ## Design decisions
 
@@ -127,11 +163,15 @@ src/email_assistant/
   memory/episodic.py   few-shot examples: add/search/format
   memory/procedural.py PromptRegistry (versions, rollback), optimizer + eval gate
   graph.py             LangGraph: triage_router → response_agent
-  assistant.py         session API: process / correct_triage / give_feedback / consolidate_facts
-  cli.py               demo, run, gmail, eval, prompts, facts
+  assistant.py         session API: process / start / resume / correct_triage / give_feedback / consolidate_facts
+  inbox.py             background processing, drafts parked in the store until a human decides
+  server.py            FastAPI: JSON API, Gmail push webhook, serves the built UI
+  integrations/gmail_push.py   Pub/Sub notification -> history.list -> Inbox, watch renewal
+  cli.py               demo, run, gmail, serve, eval, prompts, facts
+frontend/              Vue 3 + Vite UI (inbox/review, prompts, facts)
 data/sample_emails.jsonl   demo emails
 evals/triage_eval.jsonl    labelled set for the prompt-version gate
-tests/test_offline.py      tests with a fake LLM and hashed embeddings
+tests/                     offline tests (fake LLM, hashed embeddings) incl. API and webhook
 ```
 
 ## Inspiration

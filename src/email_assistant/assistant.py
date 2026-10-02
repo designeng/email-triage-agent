@@ -46,13 +46,23 @@ class Assistant:
 
     # ------------------------------------------------------------ main flow
 
+    def start(self, email: Email, thread_id: str | None = None) -> tuple[str, dict]:
+        """Run the graph until it finishes or pauses on a write_email interrupt."""
+        thread_id = thread_id or f"{email.get('id') or uuid.uuid4()}-{uuid.uuid4().hex[:6]}"
+        return thread_id, self.graph.invoke({"email_input": email}, self._config(thread_id))
+
+    def resume(self, thread_id: str, decision: dict) -> dict:
+        """Continue a paused thread with the human's decision."""
+        return self.graph.invoke(Command(resume=decision), self._config(thread_id))
+
+    def state(self, thread_id: str) -> dict:
+        return self.graph.get_state(self._config(thread_id)).values
+
     def process(self, email: Email, review: ReviewFn = auto_accept) -> dict:
-        """Run the graph on one email, resolving write_email interrupts via `review`."""
-        config = self._config(f"{email.get('id') or uuid.uuid4()}-{uuid.uuid4().hex[:6]}")
-        result = self.graph.invoke({"email_input": email}, config)
+        """Run the graph on one email, resolving write_email interrupts via `review` (blocking)."""
+        thread_id, result = self.start(email)
         while interrupts := result.get("__interrupt__"):
-            decision = review(interrupts[0].value)
-            result = self.graph.invoke(Command(resume=decision), config)
+            result = self.resume(thread_id, review(interrupts[0].value))
         return result
 
     # ------------------------------------------------------------ learning

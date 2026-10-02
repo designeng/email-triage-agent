@@ -70,19 +70,55 @@ class GoogleBackend:
         sent = self.gmail.users().messages().send(userId="me", body={"raw": raw}).execute()
         return f"Email sent to {to} (id {sent['id']})"
 
+    def get_email(self, message_id: str) -> dict:
+        """One message in the graph's `email_input` format."""
+        m = self.gmail.users().messages().get(userId="me", id=message_id, format="full").execute()
+        headers = {h["name"].lower(): h["value"] for h in m["payload"].get("headers", [])}
+        return {
+            "id": m["id"],
+            "author": headers.get("from", ""),
+            "to": headers.get("to", ""),
+            "subject": headers.get("subject", ""),
+            "email_thread": _plain_body(m["payload"]) or m.get("snippet", ""),
+        }
+
     def fetch_unread(self, query: str = "is:unread in:inbox", limit: int = 20) -> Iterator[dict]:
-        """Polling entry point: yields emails in the graph's `email_input` format."""
+        """One-shot / catch-up entry point: yields unread emails."""
         res = self.gmail.users().messages().list(userId="me", q=query, maxResults=limit).execute()
         for ref in res.get("messages", []):
-            m = self.gmail.users().messages().get(userId="me", id=ref["id"], format="full").execute()
-            headers = {h["name"].lower(): h["value"] for h in m["payload"].get("headers", [])}
-            yield {
-                "id": m["id"],
-                "author": headers.get("from", ""),
-                "to": headers.get("to", ""),
-                "subject": headers.get("subject", ""),
-                "email_thread": _plain_body(m["payload"]) or m.get("snippet", ""),
-            }
+            yield self.get_email(ref["id"])
+
+    # ------------------------------------------------------------- push (Pub/Sub)
+
+    def watch(self, topic: str) -> dict:
+        """Ask Gmail to publish INBOX changes to a Pub/Sub topic. Expires after ~7 days.
+
+        Returns {"historyId": ..., "expiration": <ms since epoch>}.
+        """
+        body = {"topicName": topic, "labelIds": ["INBOX"], "labelFilterBehavior": "INCLUDE"}
+        return self.gmail.users().watch(userId="me", body=body).execute()
+
+    def current_history_id(self) -> str:
+        return str(self.gmail.users().getProfile(userId="me").execute()["historyId"])
+
+    def new_message_ids(self, start_history_id: str) -> tuple[list[str], str]:
+        """Ids of INBOX messages added after `start_history_id`, plus the new history cursor.
+
+        Raises HttpError(404) if the cursor is too old; the caller should then re-sync.
+        """
+        ids: list[str] = []
+        latest, page = start_history_id, None
+        while True:
+            res = self.gmail.users().history().list(
+                userId="me", startHistoryId=start_history_id, historyTypes=["messageAdded"],
+                labelId="INBOX", pageToken=page,
+            ).execute()
+            for record in res.get("history", []):
+                ids += [a["message"]["id"] for a in record.get("messagesAdded", [])]
+            latest = str(res.get("historyId", latest))
+            page = res.get("nextPageToken")
+            if not page:
+                return list(dict.fromkeys(ids)), latest
 
     def mark_read(self, message_id: str) -> None:
         self.gmail.users().messages().modify(
